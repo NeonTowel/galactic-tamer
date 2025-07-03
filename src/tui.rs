@@ -1,6 +1,6 @@
 use crossterm::{
     ExecutableCommand,
-    event::{self, Event, KeyCode},
+    event::{self, KeyCode},
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use humansize::{BINARY, format_size};
@@ -29,19 +29,15 @@ pub fn restore() -> io::Result<()> {
     Ok(())
 }
 
-pub fn handle_events(app: &mut App) -> io::Result<bool> {
-    if event::poll(std::time::Duration::from_millis(50))? {
-        if let Event::Key(key) = event::read()? {
-            if key.kind == event::KeyEventKind::Press {
-                match key.code {
-                    KeyCode::Char('q') => return Ok(true),
-                    KeyCode::Char('c') => app.set_sort_by(SortBy::Cpu),
-                    KeyCode::Char('m') => app.set_sort_by(SortBy::Memory),
-                    KeyCode::Char('p') => app.set_sort_by(SortBy::Pid),
-                    KeyCode::Char('n') => app.set_sort_by(SortBy::Name),
-                    _ => {}
-                }
-            }
+pub fn handle_key_event(key: event::KeyEvent, app: &mut App) -> io::Result<bool> {
+    if key.kind == event::KeyEventKind::Press {
+        match key.code {
+            KeyCode::Char('q') => return Ok(true),
+            KeyCode::Char('c') => app.set_sort_by(SortBy::Cpu),
+            KeyCode::Char('m') => app.set_sort_by(SortBy::Memory),
+            KeyCode::Char('p') => app.set_sort_by(SortBy::Pid),
+            KeyCode::Char('n') => app.set_sort_by(SortBy::Name),
+            _ => {}
         }
     }
     Ok(false)

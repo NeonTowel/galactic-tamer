@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-const MAX_SAMPLES: usize = 180; // 15 minutes * 60 seconds / 5 seconds per sample
+const MAX_SAMPLES: usize = 360; // 30 minutes * 60 seconds / 5 seconds per sample
 
 pub struct ProcessData {
     pub cpu_usage_history: VecDeque<f32>,
@@ -40,4 +40,4 @@ impl ProcessData {
         }
         self.memory_usage_history.iter().sum::<u64>() / self.memory_usage_history.len() as u64
     }
-} 
+}

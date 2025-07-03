@@ -5,8 +5,10 @@ mod tui;
 use crate::app::App;
 use crate::process_data::ProcessData;
 use clap::Parser;
+use crossterm::event::{self, Event};
 use std::collections::HashMap;
 use std::error::Error;
+use std::thread;
 use std::time::{Duration, Instant};
 use sysinfo::{Pid, System};
 
@@ -21,8 +23,16 @@ struct Config {
     #[arg(short, long, default_value_t = 1.2)]
     mem_threshold: f32,
 
+    /// Minimum CPU usage (%) to trigger an alert
+    #[arg(long, default_value_t = 10.0)]
+    min_cpu_alert: f32,
+
+    /// Minimum memory usage (in MB) to trigger an alert
+    #[arg(long, default_value_t = 100)]
+    min_mem_alert: u64,
+
     /// Monitoring interval in seconds
-    #[arg(short, long, default_value_t = 1)]
+    #[arg(short, long, default_value_t = 5)]
     interval: u64,
 }
 
@@ -32,17 +42,33 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut process_map: HashMap<Pid, ProcessData> = HashMap::new();
     let mut app = App::new();
 
+    // Prime the CPU usage measurements
+    sys.refresh_processes();
+    thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+    sys.refresh_processes();
+
     let mut terminal = tui::init()?;
     let tick_rate = Duration::from_secs(config.interval);
     let mut last_tick = Instant::now();
 
     loop {
-        if tui::handle_events(&mut app)? {
-            break;
+        let timeout = tick_rate
+            .checked_sub(last_tick.elapsed())
+            .unwrap_or_else(|| Duration::from_secs(0));
+
+        let mut needs_redraw = false;
+
+        if event::poll(timeout)? {
+            if let Event::Key(key) = event::read()? {
+                if tui::handle_key_event(key, &mut app)? {
+                    break;
+                }
+                needs_redraw = true;
+            }
         }
 
         if last_tick.elapsed() >= tick_rate {
-            sys.refresh_all();
+            sys.refresh_processes();
             app.processes = sys.processes().keys().cloned().collect();
             app.sort_processes(&sys);
 
@@ -52,25 +78,30 @@ fn main() -> Result<(), Box<dyn Error>> {
                     let data = process_map.entry(*pid).or_insert_with(ProcessData::new);
                     data.add_sample(process.cpu_usage(), process.memory());
 
+                    let current_cpu = process.cpu_usage();
                     let cpu_avg = data.cpu_average();
-                    if cpu_avg > 0.0 && process.cpu_usage() > cpu_avg * config.cpu_threshold {
+                    if current_cpu > config.min_cpu_alert
+                        && current_cpu > cpu_avg * config.cpu_threshold
+                    {
                         new_alerts.push(format!(
                             "High CPU usage for {} ({}): {:.2}%",
                             process.name(),
                             process.pid(),
-                            process.cpu_usage()
+                            current_cpu
                         ));
                     }
 
+                    let current_mem = process.memory();
                     let mem_avg = data.memory_average();
-                    if mem_avg > 0
-                        && process.memory() > (mem_avg as f32 * config.mem_threshold) as u64
+                    let min_mem_bytes = config.min_mem_alert * 1024 * 1024;
+                    if current_mem > min_mem_bytes
+                        && current_mem > (mem_avg as f32 * config.mem_threshold) as u64
                     {
                         new_alerts.push(format!(
                             "High Memory usage for {} ({}): {}",
                             process.name(),
                             process.pid(),
-                            humansize::format_size(process.memory(), humansize::BINARY)
+                            humansize::format_size(current_mem, humansize::BINARY)
                         ));
                     }
                 }
@@ -79,11 +110,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                 app.add_alert(alert);
             }
             last_tick = Instant::now();
+            needs_redraw = true;
         }
 
-        terminal.draw(|frame| {
-            tui::draw_ui(frame, &mut app, &sys, &process_map);
-        })?;
+        if needs_redraw {
+            terminal.draw(|frame| {
+                tui::draw_ui(frame, &mut app, &sys, &process_map);
+            })?;
+        }
     }
 
     tui::restore()?;
