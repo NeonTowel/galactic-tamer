@@ -5,3 +5,8 @@ edition = "2024"
 license = "Unlicense"
 
 [dependencies]
+sysinfo = "0.30.12"
+clap = { version = "4.5.4", features = ["derive"] }
+ratatui = "0.27.0"
+crossterm = "0.27.0"
+humansize = "2.1.3"
